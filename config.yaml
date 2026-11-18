@@ -1,0 +1,42 @@
+# ============================================================
+# DairyChain AI - configuration
+# ALL VALUES BELOW ARE SIMULATION ASSUMPTIONS, NOT REAL INDUSTRIAL DATA.
+# ============================================================
+
+project:
+  name: "DairyChain AI"
+  data_source: "synthetic"
+  random_seed: 42
+
+simulation:
+  start_date: "2024-01-01"
+  n_days: 730                  # 2 years of daily history
+
+product:
+  carton_volume_l: 1.0         # one carton type, 1 L
+  waste_rate: 0.02             # share of extra cartons lost/damaged
+
+production:
+  base_daily_plan_l: 50000     # liters/day (assumed average plan)
+  weekday_factors: [1.00, 1.05, 1.05, 1.00, 1.10, 0.70, 0.40]  # Mon..Sun
+  seasonal_amplitude: 0.15     # +/-15% yearly seasonal swing
+  capacity_cap_l: 70000        # max liters/day the line can package
+  execution_noise_std: 0.05    # actual vs planned production variability
+  plan_horizon_days: 28        # plan assumed known ~4 weeks ahead
+
+procurement:
+  lead_time_mean_days: 45      # assumed
+  lead_time_std_days: 8        # assumed lead-time variability (cause not specified)
+  moq_cartons: 200000          # assumed minimum order quantity
+  initial_stock_cartons: 3000000
+
+policy:
+  service_level: 0.95          # target for TO-BE safety stock
+  review_period_days: 7        # TO-BE weekly review
+  # AS-IS is a SIMULATED REPRESENTATION of late ordering, not observed behavior
+  asis_order_trigger_days_of_cover: 10
+
+scenarios:
+  surge_multiplier: 1.25       # demand-surge scenario (+25% production)
+  surge_start_day: 600
+  surge_duration_days: 45
