@@ -47,6 +47,10 @@ def validate(daily: pd.DataFrame, orders: pd.DataFrame, cfg: dict) -> pd.DataFra
     add("production within line capacity",
         ((daily["attempted_production_l"] <= cap + 1e-6)
          & (daily["actual_production_l"] <= cap + 1e-6)).all())
+    add("market demand is positive", (daily["market_demand_l"] > 0).all())
+    add("plan within line capacity and available milk",
+        ((daily["planned_production_l"] <= cap + 1e-6)
+         & (daily["planned_production_l"] <= daily["milk_available_l"] + 1e-6)).all())
     add("every row is labelled synthetic",
         (daily["data_source"] == "synthetic").all()
         and (orders["data_source"] == "synthetic").all())

@@ -1,12 +1,14 @@
 """
-DairyChain AI - synthetic data generator.
+DairyChain AI - synthetic data generator (v2: demand -> planning -> production -> cartons).
 
-EVERYTHING PRODUCED HERE IS SIMULATED. It is not real industrial data.
+EVERYTHING PRODUCED HERE IS SIMULATED. It is not real industrial or market data.
 
-Causal chain simulated day by day:
-  production plan -> attempted production -> carton requirement
-  -> consumption (limited by stock) -> stock update (+arrivals -consumption)
-  -> weekly review -> order placed -> arrives after a sampled lead time.
+Layers, simulated in this order:
+  1. market demand (liters/day)       demand.py    trend, weekday, season, events, hidden shocks
+  2. production plan (liters/day)     planning.py  planner sees only the past + public calendar
+  3. actual production                plan x execution noise, limited by line capacity and carton stock
+  4. packaging consumption (cartons)  liters / carton volume x (1 + waste)
+  5. inventory and ordering           stock(t) = stock(t-1) + arrivals - consumption; weekly review
 """
 from __future__ import annotations
 
@@ -17,31 +19,13 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from data_generation.demand import generate_market_demand
+from data_generation.planning import planner_forecast, production_plan, raw_milk_series
+
 
 def load_config(path: str = "config.yaml") -> dict:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
-
-
-def _production_series(cfg: dict, dates: pd.DatetimeIndex, rng, surge: bool):
-    """Planned production (liters) per day, plus seasonal factor and surge flag."""
-    p = cfg["production"]
-    n = len(dates)
-    weekday = np.array(p["weekday_factors"])[dates.day_of_week.to_numpy()]
-    doy = dates.day_of_year.to_numpy()
-    seasonal = 1 + p["seasonal_amplitude"] * np.sin(2 * np.pi * (doy - 90) / 365)
-    plan_noise = 1 + rng.normal(0, p["plan_noise_std"], n)
-    plan = p["base_daily_plan_l"] * weekday * seasonal * plan_noise
-
-    surge_flag = np.zeros(n, dtype=bool)
-    if surge:
-        s = cfg["scenarios"]
-        start = s["surge_start_day"]
-        surge_flag[start:start + s["surge_duration_days"]] = True
-        plan = np.where(surge_flag, plan * s["surge_multiplier"], plan)
-
-    plan = np.clip(plan, 0, p["capacity_cap_l"])
-    return plan, seasonal, surge_flag
 
 
 def generate_dataset(cfg: dict, surge: bool = False, seed: int | None = None):
@@ -50,27 +34,36 @@ def generate_dataset(cfg: dict, surge: bool = False, seed: int | None = None):
     rng = np.random.default_rng(seed)
 
     n = cfg["simulation"]["n_days"]
+    warm = cfg["planning"]["warmup_days"]
     prod, prc = cfg["production"], cfg["procurement"]
     hp, pol = cfg["history_policy"], cfg["policy"]
     vol, waste = cfg["product"]["carton_volume_l"], cfg["product"]["waste_rate"]
     moq = prc["moq_cartons"]
 
-    dates = pd.date_range(cfg["simulation"]["start_date"], periods=n, freq="D")
-    plan, seasonal, surge_flag = _production_series(cfg, dates, rng, surge)
+    start = pd.Timestamp(cfg["simulation"]["start_date"])
+    all_dates = pd.date_range(start - pd.Timedelta(days=warm), periods=n + warm, freq="D")
+    dates = all_dates[warm:]
 
-    # Raw milk intake: contractual, continuous, seasonal (no weekday pattern).
-    raw_milk = prod["base_daily_plan_l"] * seasonal * (1 + rng.normal(0, 0.03, n))
-
-    # What the line tries to run, and the cartons that requires.
-    attempted = np.clip(
-        plan * (1 + rng.normal(0, prod["execution_noise_std"], n)),
-        0, prod["capacity_cap_l"],
-    )
+    # ---- Layer 1: demand (with a warm-up period so the planner has history on day 0)
+    demand_all, comp = generate_market_demand(cfg, all_dates, rng, surge=surge, day0=warm)
+    # ---- Layer 2: planner (28 days ahead, past demand only), limited by capacity and milk
+    forecast_all = planner_forecast(demand_all, all_dates, comp["events"].to_numpy(),
+                                    comp["surge"].to_numpy(), cfg)
+    demand_l, forecast_l = demand_all[warm:], forecast_all[warm:]
+    surge_flag = comp["surge"].to_numpy()[warm:] != 0
+    raw_milk = raw_milk_series(cfg, dates, rng)
+    milk_available = raw_milk * cfg["raw_milk"]["liquid_share"]
+    plan = production_plan(forecast_l, milk_available, cfg)
+    # ---- Layer 3: what the line tries to run, and the cartons that requires
+    attempted = np.clip(plan * (1 + rng.normal(0, prod["execution_noise_std"], n)),
+                        0, prod["capacity_cap_l"])
     requirement = np.round(attempted / vol * (1 + waste)).astype(int)
 
-    expected_daily = (prod["base_daily_plan_l"] * np.mean(prod["weekday_factors"])
+    mdm = cfg["market_demand"]
+    expected_daily = (mdm["base_daily_demand_l"] * np.mean(mdm["weekday_factors"])
                       * (1 + waste) / vol)
 
+    # ---- Layers 4-5: carton stock, consumption, weekly ordering
     stock = int(prc["initial_stock_cartons"])
     on_order = 0
     arrivals_by_day: dict[int, int] = {}
@@ -133,6 +126,9 @@ def generate_dataset(cfg: dict, surge: bool = False, seed: int | None = None):
         rows.append({
             "date": dates[t],
             "raw_milk_received_l": round(float(raw_milk[t]), 1),
+            "milk_available_l": round(float(milk_available[t]), 1),
+            "market_demand_l": round(float(demand_l[t]), 1),
+            "planner_forecast_l": round(float(forecast_l[t]), 1),
             "planned_production_l": round(float(plan[t]), 1),
             "attempted_production_l": round(float(attempted[t]), 1),
             "actual_production_l": round(used / (1 + waste) * vol, 1),

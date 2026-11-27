@@ -13,26 +13,30 @@ from data_generation.generator import load_dataset
 def build_figure(daily, tag: str) -> go.Figure:
     fig = make_subplots(
         rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.07,
-        subplot_titles=("Carton requirement (cartons/day)",
-                        "Stock at end of day (cartons) and deliveries",
-                        "Production (liters/day)"),
+        subplot_titles=("Demand, planner forecast and production plan (liters/day, 7-day mean)",
+                        "Carton requirement (cartons/day)",
+                        "Carton stock at end of day and deliveries"),
     )
+    roll = lambda s: s.rolling(7).mean()
+    fig.add_trace(go.Scatter(x=daily["date"], y=roll(daily["market_demand_l"]),
+                             name="market demand"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=daily["date"], y=roll(daily["planner_forecast_l"]),
+                             name="planner forecast", line=dict(dash="dot")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=daily["date"], y=roll(daily["planned_production_l"]),
+                             name="production plan"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=daily["date"], y=roll(daily["milk_available_l"]),
+                             name="liquid milk available", opacity=0.5), row=1, col=1)
     fig.add_trace(go.Scatter(x=daily["date"], y=daily["carton_requirement"],
-                             name="daily requirement", opacity=0.35), row=1, col=1)
-    fig.add_trace(go.Scatter(x=daily["date"],
-                             y=daily["carton_requirement"].rolling(7).mean(),
-                             name="7-day mean"), row=1, col=1)
+                             name="daily requirement", opacity=0.35), row=2, col=1)
+    fig.add_trace(go.Scatter(x=daily["date"], y=roll(daily["carton_requirement"]),
+                             name="7-day mean"), row=2, col=1)
     fig.add_trace(go.Scatter(x=daily["date"], y=daily["stock_end_of_day"],
-                             name="stock"), row=2, col=1)
+                             name="stock"), row=3, col=1)
     arr = daily[daily["arrivals"] > 0]
     fig.add_trace(go.Scatter(x=arr["date"], y=arr["stock_end_of_day"], mode="markers",
                              name="delivery day", marker=dict(size=9, symbol="triangle-up")),
-                  row=2, col=1)
-    fig.add_trace(go.Scatter(x=daily["date"], y=daily["planned_production_l"],
-                             name="planned"), row=3, col=1)
-    fig.add_trace(go.Scatter(x=daily["date"], y=daily["actual_production_l"],
-                             name="actual", opacity=0.6), row=3, col=1)
-    fig.update_layout(height=900,
+                  row=3, col=1)
+    fig.update_layout(height=950,
                       title=f"SYNTHETIC DATA - scenario '{tag}' (simulated, not real industrial data)")
     return fig
 

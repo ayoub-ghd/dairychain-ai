@@ -9,8 +9,8 @@ project:
   random_seed: 42
 
 simulation:
-  start_date: "2024-01-01"
-  n_days: 730                  # 2 years of daily history
+  start_date: "2022-01-01"
+  n_days: 1461                # 4 years of daily history
 
 product:
   carton_volume_l: 1.0         # one carton type, 1 L
