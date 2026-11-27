@@ -50,3 +50,74 @@ scenarios:
   surge_multiplier: 1.25       # demand-surge scenario (+25% planned production)
   surge_start_day: 600
   surge_duration_days: 45
+  
+# ---- Layer 1: simulated demand for the factory's products (customer orders) ----
+# EVERY NUMBER IS AN ASSUMPTION. Effects multiply (additive in log space):
+# log D = log base + trend + weekday + season + events + AR(1) shock + noise + unannounced shocks
+market_demand:
+  base_daily_demand_l: 45000
+  annual_trend: 0.03                 # +3% per year
+  weekday_factors: [1.05, 1.00, 1.00, 1.00, 1.10, 1.05, 0.80]   # Mon..Sun (mean ~1.0)
+  season_amplitude: 0.08             # +/-8% smooth yearly swing
+  season_peak_day_of_year: 200
+  ar_phi: 0.7                        # persistence of demand shocks
+  ar_sigma: 0.025
+  noise_sigma: 0.03
+  shocks:                            # unannounced events: HIDDEN from the model
+    probability_per_day: 0.01
+    duration_days: [3, 10]
+    magnitude_sigma: 0.08
+  # Calendar events: windows [start, end]; effect inside the window; pre/post effects around it.
+  # Dates are ILLUSTRATIVE assumptions (movable events shift ~11 days earlier each year). Verify before use.
+  events:
+    movable_observance:              # month-long lunar-calendar event
+      group: observance
+      windows: [["2022-04-02", "2022-05-01"], ["2023-03-23", "2023-04-20"],
+                ["2024-03-11", "2024-04-09"], ["2025-03-01", "2025-03-30"]]
+      effect: 0.12
+      pre_days: 5
+      pre_effect: 0.05
+      post_days: 3
+      post_effect: -0.04
+    movable_holiday:                 # festival right after the observance
+      group: holiday
+      windows: [["2022-05-02", "2022-05-03"], ["2023-04-21", "2023-04-22"],
+                ["2024-04-10", "2024-04-11"], ["2025-03-31", "2025-04-01"]]
+      effect: -0.20
+      pre_days: 3
+      pre_effect: 0.15
+      post_days: 2
+      post_effect: -0.05
+    fixed_holiday_a:                 # fixed date: 1 January
+      group: holiday
+      windows: [["2022-01-01", "2022-01-01"], ["2023-01-01", "2023-01-01"],
+                ["2024-01-01", "2024-01-01"], ["2025-01-01", "2025-01-01"]]
+      effect: -0.20
+      pre_days: 2
+      pre_effect: 0.08
+      post_days: 1
+      post_effect: -0.05
+    fixed_holiday_b:                 # fixed date: 1 May
+      group: holiday
+      windows: [["2022-05-01", "2022-05-01"], ["2023-05-01", "2023-05-01"],
+                ["2024-05-01", "2024-05-01"], ["2025-05-01", "2025-05-01"]]
+      effect: -0.15
+      pre_days: 1
+      pre_effect: 0.05
+      post_days: 1
+      post_effect: -0.03
+
+# ---- Raw milk supply (contractual, keeps arriving) ----
+raw_milk:
+  base_daily_intake_l: 70000
+  seasonal_amplitude: 0.12
+  peak_day_of_year: 110
+  noise_std: 0.03
+  liquid_share: 0.90                 # share of intake available for liquid-milk packaging
+
+# ---- Layer 2: production planner (works 28 days ahead, sees only PAST demand) ----
+planning:
+  history_weeks: 4                   # same-weekday average of the 4 weeks before the planning date
+  event_knowledge: 0.7               # planner anticipates 70% of each calendar event's true effect
+  safety_margin: 0.0
+  warmup_days: 56                    # demand simulated before the start so the planner has history on day 0

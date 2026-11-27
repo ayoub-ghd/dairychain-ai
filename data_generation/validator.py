@@ -22,7 +22,7 @@ def validate(daily: pd.DataFrame, orders: pd.DataFrame, cfg: dict) -> pd.DataFra
     prev = daily["stock_end_of_day"].shift(1).fillna(initial)
     balance = prev + daily["arrivals"] - daily["daily_consumption"]
     bad = int((balance != daily["stock_end_of_day"]).sum())
-    add("stock balance: stock(t) = stock(t-1) + arrivals - consumption", bad == 0,
+    add("stock balance: stock(t) = stock(t-1) + arrivals - consumption", bad == 0, 
         f"{bad} violating days")
 
     add("consumption + unmet = requirement",
